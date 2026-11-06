@@ -173,6 +173,12 @@
         .context-height {
             font-size: 10px; font-variant-numeric: tabular-nums; text-anchor: end; pointer-events: none;
         }
+        .context-list-heading { margin: 16px 0 10px; color: var(--header-color); }
+        .context-list-empty { display: block; color: #6c757d; font-size: 0.9em; margin-bottom: 10px; }
+        .unadded-context { cursor: grab; border-left-color: #adb5bd; }
+        .unadded-context:active { cursor: grabbing; }
+        .unadded-context:focus-visible { outline: 2px solid var(--primary-accent); outline-offset: 2px; }
+        .visualization-panel.context-drop-active { box-shadow: inset 0 0 0 3px var(--primary-accent); }
     </style>
 </head>
 <body>
@@ -216,13 +222,15 @@
                     <h3>Import/Export</h3>
                     <button onclick="exportEnhancedData()" class="btn-primary">Export Enhanced CSV</button>
                     <button onclick="exportViewAsSVG()" class="btn-primary">Export View as SVG</button>
-                    <button onclick="triggerImport()" class="btn-primary">Import from CSV</button>
+                    <button onclick="triggerImport('matrix')" class="btn-primary">Import Harris Matrix CSV</button>
+                    <button onclick="triggerImport('plain')" class="btn-primary">Import Plain Contexts CSV</button>
+                    <p id="importStatus" role="status" aria-live="polite" style="font-size:0.9em;" hidden></p>
                     <h3>Start Over</h3>
                     <button onclick="confirmClear()" class="btn-danger">Clear All</button>
                 </div>
             </div>
             
-            <div class="visualization-panel">
+            <div class="visualization-panel" id="matrixDropZone">
                 <svg id="matrixSvg"></svg>
             </div>
             <aside class="context-details-panel" aria-label="Context Parameters">
@@ -237,8 +245,8 @@
     <!-- CSV Import Modal -->
     <div id="importModal" class="modal-backdrop">
         <div class="modal-content">
-            <h4>Map CSV Columns to Import</h4>
-            <p style="font-size:0.9em; margin-bottom:15px;">
+            <h4 id="importModalTitle">Map CSV Columns to Import</h4>
+            <p id="importInstructions" style="font-size:0.9em; margin-bottom:15px;">
                Select which column from your CSV file corresponds to each data field.
                <b>Context ID</b> is required for each row. Relationships require both a <b>Related Context ID</b> and a <b>Relationship Type</b>.
             </p>
@@ -269,6 +277,7 @@
             </div>
 
             
+            <div id="importRelationshipFields">
             <hr style="margin: 20px 0;">
             <h5 style="margin-bottom:15px;">For Relationships</h5>
     
@@ -279,6 +288,7 @@
             <div class="form-group">
                 <label>Related Context ID</label>
                 <select id="mapRelTo"></select>
+            </div>
             </div>
             
             <hr style="margin: 20px 0;">
@@ -510,7 +520,7 @@
                 this.id = id; this.x = x; this.y = y; this.fixed = false; this.type = 'layer';
                 this.description = ''; this.earliestDate = null; this.latestDate = null; this.dateType = '';
                 this.groupId = null; this.subGroupId = null; this.phaseId = null;
-                this.highestPoint = null; this.lowestPoint = null; this.munsellNumber = '';
+                this.highestPoint = null; this.lowestPoint = null; this.munsellNumber = ''; this.onMatrix = true;
             }
             hasDateRange() { return this.earliestDate !== null && this.latestDate !== null; }
             getDateRange() { if (!this.hasDateRange()) return null; return { earliest: this.earliestDate, latest: this.latestDate, type: this.dateType }; }
@@ -527,7 +537,10 @@
             loadFromStorage();
             drawGrid();
             updateUI();
-            svg.on('click', handleCanvasClick);
+            svg.on('click', handleCanvasClick)
+                .on('dragover', handleContextDragOver)
+                .on('drop', handleContextDrop)
+                .on('dragleave', () => document.getElementById('matrixDropZone').classList.remove('context-drop-active'));
             document.getElementById('csvFileInput').onchange = handleFileSelect;
         };
         
@@ -549,17 +562,18 @@
         }
 
         function applySugiyamaLayout() {
-            if (contexts.size === 0) { g.selectAll(".context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary").remove(); return; }
+            const matrixContexts = getMatrixContexts();
+            if (matrixContexts.size === 0) { nodePositions = {}; g.selectAll(".context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary").remove(); return; }
             const { levels, stratigraphicEdges, contemporaryLinks, hasCycle } = calculateInitialLevels();
 
             if (hasCycle) {
-                const cyclicNodeIds = Array.from(contexts.keys()).filter(id => !levels.has(id));
+                const cyclicNodeIds = Array.from(matrixContexts.keys()).filter(id => !levels.has(id));
                 alert(`ERROR: A cycle was detected in the stratigraphic relationships, which is logically impossible.\n\nPlease review the relationships for the following contexts:\n\n${cyclicNodeIds.join(', ')}\n\nThe matrix cannot be drawn until this is fixed.`);
                 return;
             }
 
             const { dummyNodes, allEdges } = createDummyNodesAndEdges(stratigraphicEdges, levels);
-            const allNodes = new Map([...contexts, ...dummyNodes]);
+            const allNodes = new Map([...matrixContexts, ...dummyNodes]);
             const orderedLevels = reduceCrossings(levels, allNodes, allEdges);
             nodePositions = assignCoordinates(orderedLevels, levels, dummyNodes);
             drawMatrix(nodePositions, allEdges, contemporaryLinks);
@@ -594,15 +608,11 @@
                 });
             }
             
-            const unassigned = Array.from(contexts.values()).filter(c => !c.groupId && !c.phaseId);
-            if (unassigned.length > 0) {
-                html += '<div style="font-weight: bold; margin: 10px 0;">Unassigned Contexts</div>';
-                unassigned.forEach(context => {
-                    const hasConflicts = temporalConflicts.some(c => c.context1 === context.id || c.context2 === context.id);
-                    html += `<div class="hierarchy-item ${hasConflicts ? 'temporal-conflict' : ''}" onclick="highlightContext('${context.id}')"><div class="item-header">${context.id} (${escapeContextTypeText(context)})${hasConflicts ? '<span class="conflict-indicator"></span>' : ''}</div><div class="item-details">${context.description}</div>${context.hasDateRange() ? `<div class="item-contexts">${dateToString(context.earliestDate)} - ${dateToString(context.latestDate)} (${context.dateType})</div>` : ''}</div>`;
-                });
-            }
-            listDiv.innerHTML = html || '<em>No data yet. Start by clicking on the canvas.</em>';
+            listDiv.innerHTML = html;
+            const unassigned = Array.from(getMatrixContexts().values()).filter(context => !context.groupId && !context.phaseId);
+            const unadded = Array.from(contexts.values()).filter(context => context.onMatrix === false);
+            appendContextList(listDiv, 'unassignedContexts', 'Unassigned Contexts', unassigned, false);
+            appendContextList(listDiv, 'unaddedContexts', 'Unadded Contexts', unadded, true);
         }
 
         function updateConflictsDisplay() {
@@ -746,10 +756,11 @@
         }
 
         function calculateInitialLevels() {
-            const contextIds = Array.from(contexts.keys());
+            const matrixContexts = getMatrixContexts();
+            const contextIds = Array.from(matrixContexts.keys());
             if (contextIds.length === 0) return { levels: new Map(), stratigraphicEdges: [], contemporaryLinks: [], hasCycle: false, equivalenceInfo: { contextToGroupRep: new Map(), groupRepToMembers: new Map() } };
             
-            const equivalenceInfo = findEquivalenceGroups(contexts, relationships);
+            const equivalenceInfo = findEquivalenceGroups(matrixContexts, relationships.filter(rel => matrixContexts.has(rel.from) && matrixContexts.has(rel.to)));
             const { contextToGroupRep } = equivalenceInfo;
             
             const logicalNodes = new Set(contextIds.map(id => contextToGroupRep.get(id) || id));
@@ -759,11 +770,12 @@
             const contemporaryLinks = [];
 
             relationships.forEach((rel, index) => {
+                if (!matrixContexts.has(rel.from) || !matrixContexts.has(rel.to)) return;
                 let from, to;
                 if (['above', 'seals', 'cuts', 'fill_of'].includes(rel.type)) { [from, to] = [rel.to, rel.from]; } 
                 else if (['below', 'sealed_by', 'cut_by', 'filled_by'].includes(rel.type)) { [from, to] = [rel.from, rel.to]; } 
                 else if (['contemporary_with', 'equivalent', 'same_as'].includes(rel.type)) { contemporaryLinks.push({ from: rel.from, to: rel.to }); }
-                if (from && to && contexts.has(from) && contexts.has(to)) {
+                if (from && to && matrixContexts.has(from) && matrixContexts.has(to)) {
                     const repFrom = contextToGroupRep.get(from) || from;
                     const repTo = contextToGroupRep.get(to) || to;
 
@@ -855,7 +867,7 @@
             const width = svg.node().getBoundingClientRect().width;
             const maxLevel = d3.max(orderedLevels.keys()) || 0;
             const fixedNodeIds = new Set();
-            contexts.forEach(context => {
+            getMatrixContexts().forEach(context => {
                 if (context.fixed) {
                     positions[context.id] = { x: context.x, y: context.y };
                     fixedNodeIds.add(context.id);
@@ -956,7 +968,7 @@
             });
 
             // Draw the nodes on top of the lines.
-            const nodeData = Array.from(contexts.keys()).filter(id => positions[id]);
+            const nodeData = Array.from(getMatrixContexts().keys()).filter(id => positions[id]);
             const nodeGroups = g.selectAll(".context-node-group").data(nodeData, d => d).join("g")
                 .attr("class", "context-node-group")
                 .attr("transform", d => `translate(${positions[d].x}, ${positions[d].y})`)
@@ -1108,12 +1120,141 @@
             const name = document.getElementById("groupName").value.trim(); if (!name) { alert("Phase name is required."); return; } const id = `phase_${Date.now()}`; const phase = new HierarchicalGroup(id, name, 'phase'); phase.description = document.getElementById("groupDescription").value.trim(); phases.set(id, phase); hideModals(); updateUI();
         }
 
+        function getMatrixContexts() {
+            return new Map(Array.from(contexts).filter(([, context]) => context.onMatrix !== false));
+        }
+
+        function appendContextList(parent, id, title, items, unadded) {
+            const section = document.createElement('section');
+            section.id = id;
+            const heading = document.createElement('h4');
+            heading.className = 'context-list-heading';
+            heading.textContent = title + ' (' + items.length + ')';
+            section.appendChild(heading);
+            if (!items.length) {
+                const empty = document.createElement('em');
+                empty.className = 'context-list-empty';
+                empty.textContent = unadded ? 'No contexts waiting to be added.' : 'No unassigned contexts on the matrix.';
+                section.appendChild(empty);
+            }
+            const list = document.createElement('div');
+            list.setAttribute('role', 'list');
+            items.forEach(context => {
+                const row = document.createElement('div');
+                row.className = 'hierarchy-item' + (unadded ? ' unadded-context' : '');
+                row.setAttribute('data-context-id', context.id);
+                row.setAttribute('role', 'listitem');
+                row.tabIndex = 0;
+                const header = document.createElement('div');
+                header.className = 'item-header';
+                header.textContent = context.id + ' (' + parseContextTypes(context.type).join(', ') + ')';
+                const details = document.createElement('div');
+                details.className = 'item-details';
+                details.textContent = context.description;
+                row.append(header, details);
+                if (context.hasDateRange()) {
+                    const dates = document.createElement('div');
+                    dates.className = 'item-contexts';
+                    dates.textContent = dateToString(context.earliestDate) + ' - ' + dateToString(context.latestDate) + ' (' + context.dateType + ')';
+                    row.appendChild(dates);
+                }
+                row.onmouseenter = () => showContextDetails(context.id);
+                if (unadded) {
+                    row.draggable = true;
+                    row.setAttribute('data-unadded-context-id', context.id);
+                    row.setAttribute('aria-label', 'Context ' + context.id + '. Drag onto the matrix, or press Enter to add.');
+                    row.title = 'Drag onto the matrix to add. You can also focus this context and press Enter.';
+                    row.ondragstart = event => startUnaddedContextDrag(event, context.id);
+                    row.ondragend = finishUnaddedContextDrag;
+                    row.onclick = () => showContextDetails(context.id);
+                    row.onkeydown = event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            const point = getKeyboardContextPosition();
+                            addContextToMatrix(context.id, point[0], point[1]);
+                        }
+                    };
+                } else {
+                    if (temporalConflicts.some(conflict => conflict.context1 === context.id || conflict.context2 === context.id)) row.className += ' temporal-conflict';
+                    row.onclick = () => { highlightContext(context.id); showContextDetails(context.id); };
+                    row.onkeydown = event => {
+                        if (event.key === 'Enter') { event.preventDefault(); row.onclick(); }
+                    };
+                }
+                list.appendChild(row);
+            });
+            section.appendChild(list);
+            parent.appendChild(section);
+        }
+
+        let draggedUnaddedContextId = null;
+        const CONTEXT_DRAG_TYPE = 'application/x-harris-context';
+
+        function startUnaddedContextDrag(event, id) {
+            const context = contexts.get(id);
+            if (!context || context.onMatrix !== false || !event.dataTransfer) { event.preventDefault(); return; }
+            draggedUnaddedContextId = id;
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData(CONTEXT_DRAG_TYPE, id);
+            event.dataTransfer.setData('text/plain', id);
+        }
+
+        function finishUnaddedContextDrag() {
+            draggedUnaddedContextId = null;
+            document.getElementById('matrixDropZone').classList.remove('context-drop-active');
+        }
+
+        function handleContextDragOver(event) {
+            if (!draggedUnaddedContextId && !Array.from(event.dataTransfer?.types || []).includes(CONTEXT_DRAG_TYPE)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            document.getElementById('matrixDropZone').classList.add('context-drop-active');
+        }
+
+        function handleContextDrop(event) {
+            const id = event.dataTransfer?.getData(CONTEXT_DRAG_TYPE) || draggedUnaddedContextId;
+            const context = contexts.get(id);
+            if (!context || context.onMatrix !== false) { finishUnaddedContextDrag(); return; }
+            event.preventDefault();
+            event.stopPropagation();
+            const point = d3.pointer(event, g.node());
+            addContextToMatrix(id, point[0], point[1]);
+            finishUnaddedContextDrag();
+        }
+
+        function getKeyboardContextPosition() {
+            const canvas = svg.node();
+            const bounds = canvas.getBoundingClientRect();
+            const point = d3.zoomTransform(canvas).invert([bounds.width / 2, bounds.height / 2]);
+            const placed = Array.from(getMatrixContexts().keys()).map(id => nodePositions[id]).filter(Boolean);
+            while (placed.some(position => Math.abs(position.x - point[0]) < 100 && Math.abs(position.y - point[1]) < 50)) point[1] += GRID_CELL_SIZE;
+            return point;
+        }
+
+        function addContextToMatrix(id, x, y) {
+            const context = contexts.get(id);
+            if (!context || context.onMatrix !== false || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+            context.x = Math.round(x / GRID_CELL_SIZE) * GRID_CELL_SIZE;
+            context.y = Math.round(y / GRID_CELL_SIZE) * GRID_CELL_SIZE;
+            context.fixed = true;
+            context.onMatrix = true;
+            inspectedContext = context;
+            updateUI();
+            return true;
+        }
+
+
         // --- CSV Import Functions ---
-        function triggerImport() { document.getElementById('csvFileInput').click(); }
+        let csvImportMode = 'matrix';
+        function triggerImport(mode = 'matrix') {
+            csvImportMode = mode === 'plain' ? 'plain' : 'matrix';
+            document.getElementById('csvFileInput').click();
+        }
         
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
+            const mode = csvImportMode;
             const reader = new FileReader();
             reader.onload = (e) => {
                 const csvContent = e.target.result;
@@ -1121,7 +1262,7 @@
                     const parsedData = d3.csvParse(csvContent);
                     if (parsedData.length === 0) { throw new Error("CSV file is empty or invalid."); }
                     const headers = parsedData.columns;
-                    showImportModal(parsedData, headers);
+                    showImportModal(parsedData, headers, mode);
                 } catch (error) {
                     alert(`Error parsing CSV file: ${error.message}`);
                 }
@@ -1130,8 +1271,14 @@
             event.target.value = ''; // Reset input to allow re-selection of the same file
         }
 
-        function showImportModal(parsedData, headers) {
+        function showImportModal(parsedData, headers, mode = csvImportMode) {
             const modal = document.getElementById("importModal");
+            document.getElementById('importModalTitle').textContent = mode === 'plain' ? 'Import Plain Contexts CSV' : 'Import Harris Matrix CSV';
+            document.getElementById('importInstructions').textContent = mode === 'plain'
+                ? 'Map your context columns. Imported contexts wait in Unadded Contexts until you drag them onto the matrix. Relationship columns are ignored.'
+                : 'Map your context and relationship columns. Context ID is required; relationships need both a type and a related context ID.';
+            document.getElementById('importRelationshipFields').hidden = mode === 'plain';
+            document.getElementById('importClearData').checked = mode !== 'plain';
             const selectIds = ["mapContextId", "mapContextType", "mapDescription", "mapHighestPoint", "mapLowestPoint", "mapMunsellNumber", "mapRelType", "mapRelTo"];
             
             const noMapOption = `<option value="">--- Do Not Map ---</option>`;
@@ -1150,19 +1297,19 @@
                 mapMunsellNumber: ['munsell_number', 'munsellnumber', 'munsell'],
                 mapHighestPoint: ["layer's_highest_point", 'highestpoint', 'highest_point'],
                 mapLowestPoint: ["layer's_lowest_point", 'lowestpoint', 'lowest_point'],
-                mapRelType: ['rel_type', 'relationship', 'rel type', 'type'],
-                mapRelTo: ['rel_to', 'related_to', 'related context', 'is_below', 'is_above']
+                mapRelType: ['rel_type', 'relationship_type', 'relationship', 'type'],
+                mapRelTo: ['rel_to', 'related_to', 'related_context', 'related_context_id', 'is_below', 'is_above']
             };
             for (const [selectId, possibleHeaders] of Object.entries(smartMap)) {
                 const foundHeader = headers.find(h => possibleHeaders.includes(h.trim().toLowerCase().replace(/’/g, "'").replace(/\s+/g, '_')));
                 if (foundHeader) { document.getElementById(selectId).value = foundHeader; }
             }
             
-            document.getElementById("confirmImportBtn").onclick = () => confirmImport(parsedData);
+            document.getElementById("confirmImportBtn").onclick = () => confirmImport(parsedData, mode);
             modal.style.display = "flex";
         }
         
-        function confirmImport(parsedData) {
+        function confirmImport(parsedData, mode = 'matrix') {
             const mapping = {
                 contextId: document.getElementById('mapContextId').value,
                 contextType: document.getElementById('mapContextType').value,
@@ -1175,6 +1322,7 @@
             };
             
             if (!mapping.contextId) { alert("'Context ID' must be mapped to a column."); return; }
+            const stateColumn = (parsedData.columns || Object.keys(parsedData[0] || {})).find(header => header.trim().toLowerCase() === 'on_matrix');
             
             // Validate the new fields before changing any existing data.
             let importedLayerPoints;
@@ -1197,10 +1345,13 @@
                 if (!id) return;
 
                 if (!contexts.has(id)) {
-                    contexts.set(id, new ArchaeologicalContext(id));
+                    const imported = new ArchaeologicalContext(id);
+                    imported.onMatrix = mode !== 'plain';
+                    contexts.set(id, imported);
                     importedContexts++;
                 }
                 const context = contexts.get(id);
+                if (mode !== 'plain') context.onMatrix = !stateColumn || !['false', '0', 'no'].includes(String(row[stateColumn]).trim().toLowerCase());
                 if (mapping.contextType) context.type = parseContextTypes(row[mapping.contextType]);
                 if (mapping.munsellNumber) context.munsellNumber = String(row[mapping.munsellNumber] ?? '').trim();
                 const layerPoints = importedLayerPoints[rowIndex];
@@ -1214,7 +1365,7 @@
                 const relType = row[mapping.relType]?.trim();
                 const relTo = row[mapping.relTo]?.trim();
                 
-                if (relType && relTo) {
+                if (mode !== 'plain' && relType && relTo) {
                     if (!contexts.has(relTo)) {
                         contexts.set(relTo, new ArchaeologicalContext(relTo));
                         importedContexts++;
@@ -1224,12 +1375,18 @@
                 }
             });
 
+            // Any context participating in the matrix import's relationships must be visible.
+            if (mode !== 'plain') relationships.forEach(rel => {
+                if (contexts.has(rel.from)) contexts.get(rel.from).onMatrix = true;
+                if (contexts.has(rel.to)) contexts.get(rel.to).onMatrix = true;
+            });
+
             // Without relationships, display imported contexts vertically in CSV order.
             // These are positions only; no stratigraphic relationships are inferred.
-            if (relationships.length === 0) {
+            if (mode !== 'plain' && relationships.length === 0) {
                 const x = svg.node().getBoundingClientRect().width / 2;
                 let row = 0;
-                contexts.forEach(context => {
+                getMatrixContexts().forEach(context => {
                     if (!context.fixed) {
                         context.x = x; context.y = 50 + row * 120; context.fixed = true;
                     }
@@ -1239,7 +1396,11 @@
 
             hideModals();
             updateUI();
-            alert(`Import complete. Added ${importedContexts} new contexts and ${importedRels} relationships.`);
+            const status = document.getElementById('importStatus');
+            status.textContent = mode === 'plain'
+                ? `Import complete. Added ${importedContexts} new plain contexts. Drag them from Unadded Contexts onto the matrix.`
+                : `Import complete. Added ${importedContexts} new contexts and ${importedRels} relationships.`;
+            status.hidden = false;
         }
 
         /* Munsell Renotation data from Colour v0.4.7, real.py.
@@ -1518,7 +1679,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” 
         function exportEnhancedData() {
             if (contexts.size === 0) { alert("No data to export."); return; }
             let csvContent = "data:text/csv;charset=utf-8,";
-            const headers = ["Context_ID", "Context_Type", "Description", "Earliest_Date_Year", "Earliest_Date_Era", "Latest_Date_Year", "Latest_Date_Era", "Date_Type", "Phase_ID", "Phase_Name", "Group_ID", "Group_Name", "Sub-Group_ID", "Sub-Group_Name", "Layer's highest point", "Layer's lowest point", "Munsell Number", "Relationship_Type", "Related_Context_ID", "Temporal_Conflict", "Is_Redundant"];
+            const headers = ["Context_ID", "Context_Type", "Description", "Earliest_Date_Year", "Earliest_Date_Era", "Latest_Date_Year", "Latest_Date_Era", "Date_Type", "Phase_ID", "Phase_Name", "Group_ID", "Group_Name", "Sub-Group_ID", "Sub-Group_Name", "Layer's highest point", "Layer's lowest point", "Munsell Number", "Relationship_Type", "Related_Context_ID", "Temporal_Conflict", "Is_Redundant", "On_Matrix"];
             csvContent += headers.join(",") + "\r\n";
             const redundantIndices = findRedundantRelationships();
             contexts.forEach(context => {
@@ -1532,9 +1693,9 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” 
                 const hasConflict = temporalConflicts.some(c => c.context1 === context.id || c.context2 === context.id);
                 const baseRow = [ escapeCSV(context.id), escapeCSV(parseContextTypes(context.type).join('; ')), escapeCSV(context.description), earliestDate.year, escapeCSV(earliestDate.era), latestDate.year, escapeCSV(latestDate.era), escapeCSV(context.dateType), escapeCSV(context.phaseId), escapeCSV(phase?.name), escapeCSV(context.groupId), escapeCSV(group?.name), escapeCSV(context.subGroupId), escapeCSV(subGroup?.name), context.highestPoint ?? '', context.lowestPoint ?? '', escapeCSV(context.munsellNumber) ];
                 if (relsForContext.length > 0) {
-                    relsForContext.forEach(rel => { csvContent += [...baseRow, escapeCSV(rel.type), escapeCSV(rel.to), hasConflict, redundantIndices.has(rel.index)].join(",") + "\r\n"; });
+                    relsForContext.forEach(rel => { csvContent += [...baseRow, escapeCSV(rel.type), escapeCSV(rel.to), hasConflict, redundantIndices.has(rel.index), context.onMatrix !== false].join(",") + "\r\n"; });
                 } else {
-                    csvContent += [...baseRow, '', '', hasConflict, ''].join(",") + "\r\n";
+                    csvContent += [...baseRow, '', '', hasConflict, '', context.onMatrix !== false].join(",") + "\r\n";
                 }
             });
             const link = document.createElement("a");
