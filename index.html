@@ -336,23 +336,29 @@
         .grid-group, .matrix-shell.is-empty .grid-group { opacity: 1; }
         .band-guide { stroke: #ccd3d9; stroke-width: 1.2px; stroke-dasharray: 7,8; vector-effect: non-scaling-stroke; pointer-events: none; }
         .band-drop-preview { fill: #4b91c8; fill-opacity: .08; pointer-events: none; }
+        /* Compact CSV mapping: paired columns and short, aligned controls. */
+        #importModal .modal-content { width: 660px; padding: 18px 20px; }
+        #importModal h4 { padding: 12px 20px; margin: -18px -20px 10px; }
+        #importInstructions { font-size: 12px; line-height: 1.45; margin: 0 0 12px; }
+        .import-mapping-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 16px; }
+        #importModal .form-group { margin: 0; min-width: 0; }
+        #importModal label { margin: 0 0 4px; line-height: 1.35; }
+        #importModal select { margin: 0; padding: 6px 8px; height: 32px; }
+        #importRelationshipFields { border-top: 1px solid #e1e6ea; margin-top: 12px; padding-top: 10px; }
+        #importRelationshipFields h5 { margin: 0 0 8px; font-size: 12px; color: #6a7883; }
+        #importModal .import-options { border-top: 1px solid #e1e6ea; margin-top: 12px; padding-top: 10px; }
+        #importModal .import-options label { display: flex; align-items: center; gap: 7px; margin: 0; font-weight: 400; }
+        #importModal input[type="checkbox"] { width: auto; margin: 0; padding: 0; }
+        #importModal .modal-buttons { margin-top: 12px; }
+        #importModal .modal-buttons button { padding: 8px; }
+        @media (max-width: 560px) { .import-mapping-grid { grid-template-columns: 1fr; gap: 7px; } }
     </style>
 </head>
 <body>
     <nav class="app-rail" aria-label="Workspace navigation">
-        <div class="rail-brand" title="Harris Matrix">
+        <div class="rail-brand" role="img" aria-label="Harris Matrix" title="Harris Matrix">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="8" y="2" width="8" height="5"/><rect x="1" y="17" width="8" height="5"/><rect x="15" y="17" width="8" height="5"/><path d="M12 7v5M5 17v-5h14v5"/></svg>
         </div>
-        <button class="rail-button active" data-panel-tab="hierarchy" onclick="switchTab('hierarchy')" aria-label="Show contexts" aria-pressed="true" title="Contexts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
-        </button>
-        <button class="rail-button" data-panel-tab="relationships" onclick="switchTab('relationships')" aria-label="Show relationships" aria-pressed="false" title="Relationships">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="m8 8 8 8M14 6h6M18 4l2 2-2 2M4 18h6"/></svg>
-        </button>
-        <button class="rail-button" data-panel-tab="conflicts" onclick="switchTab('conflicts')" aria-label="Show conflicts" aria-pressed="false" title="Temporal conflicts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5M12 17v1"/></svg>
-        </button>
-        <div class="rail-caption" aria-hidden="true">HM</div>
     </nav>
     <div class="container">
         <header class="header">
@@ -404,6 +410,7 @@
                             <div class="menu-heading">Export data</div>
                             <button onclick="exportEnhancedData();this.closest('details').open=false">Export Enhanced CSV</button>
                             <button onclick="exportViewAsSVG();this.closest('details').open=false">Export View as SVG</button>
+                            <button id="exportPngBtn" onclick="exportMatrixAsPNG();this.closest('details').open=false" title="200 dpi; minimum font size 9 pt at actual print size">Export Matrix as PNG (200 dpi)</button>
                         </div></details>
                     </div>
                 </div>
@@ -425,13 +432,14 @@
     <div id="importModal" class="modal-backdrop">
         <div class="modal-content">
             <h4 id="importModalTitle">Map CSV Columns to Import</h4>
-            <p id="importInstructions" style="font-size:0.9em; margin-bottom:15px;">
+            <p id="importInstructions">
                Select which column from your CSV file corresponds to each data field.
                <b>Context ID</b> is required for each row. Relationships require both a <b>Related Context ID</b> and a <b>Relationship Type</b>.
             </p>
     
+            <div class="import-mapping-grid">
             <div class="form-group">
-                <label>Context ID (Required)</label>
+                <label for="mapContextId">Context ID (Required)</label>
                 <select id="mapContextId"></select>
             </div>
             <div class="form-group">
@@ -439,7 +447,7 @@
                 <select id="mapContextType"></select>
             </div>
             <div class="form-group">
-                <label>Description</label>
+                <label for="mapDescription">Description</label>
                 <select id="mapDescription"></select>
             </div>
             <div class="form-group">
@@ -454,24 +462,25 @@
                 <label for="mapMunsellNumber">Munsell Number</label>
                 <select id="mapMunsellNumber"></select>
             </div>
+            </div>
 
             
             <div id="importRelationshipFields">
-            <hr style="margin: 20px 0;">
-            <h5 style="margin-bottom:15px;">For Relationships</h5>
+            <h5>For Relationships</h5>
+            <div class="import-mapping-grid">
     
             <div class="form-group">
-                <label>Relationship Type (e.g., 'above', 'below', 'equivalent')</label>
+                <label for="mapRelType" title="For example: above, below, equivalent">Relationship Type</label>
                 <select id="mapRelType"></select>
             </div>
             <div class="form-group">
-                <label>Related Context ID</label>
+                <label for="mapRelTo">Related Context ID</label>
                 <select id="mapRelTo"></select>
             </div>
             </div>
+            </div>
             
-            <hr style="margin: 20px 0;">
-            <div class="form-group">
+            <div class="form-group import-options">
                 <label><input type="checkbox" id="importClearData" checked> Clear all existing data before import</label>
             </div>
     
@@ -2116,6 +2125,120 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” 
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
+        }
+
+        const PNG_EXPORT_DPI = 200;
+        const PNG_MIN_FONT_PT = 9;
+        const CONTEXT_HEIGHT_FONT_PX = 10;
+
+        function pngExportDimensions(bounds, smallestFontPx = CONTEXT_HEIGHT_FONT_PX) {
+            const scale = PNG_MIN_FONT_PT * PNG_EXPORT_DPI / (72 * smallestFontPx);
+            const padding = 40;
+            return { scale, x: bounds.x - padding, y: bounds.y - padding,
+                worldWidth: bounds.width + padding * 2, worldHeight: bounds.height + padding * 2,
+                width: Math.ceil((bounds.width + padding * 2) * scale),
+                height: Math.ceil((bounds.height + padding * 2) * scale) };
+        }
+
+        function pngCRC32(bytes) {
+            let crc = 0xffffffff;
+            for (const byte of bytes) {
+                crc ^= byte;
+                for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        // PNG pHYs stores pixels per metre, not dpi. Replace the canvas's default density.
+        function pngWithPrintResolution(bytes, dpi = PNG_EXPORT_DPI) {
+            const density = Math.round(dpi / 0.0254);
+            const physical = new Uint8Array(21);
+            const view = new DataView(physical.buffer);
+            view.setUint32(0, 9);
+            physical.set([112, 72, 89, 115], 4); // pHYs
+            view.setUint32(8, density); view.setUint32(12, density); physical[16] = 1;
+            view.setUint32(17, pngCRC32(physical.subarray(4, 17)));
+            const parts = [bytes.subarray(0, 8)];
+            let inserted = false;
+            for (let offset = 8; offset < bytes.length;) {
+                const length = new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0);
+                const end = offset + length + 12;
+                const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+                if (type !== 'pHYs') parts.push(bytes.subarray(offset, end));
+                if (type === 'IHDR' && !inserted) { parts.push(physical); inserted = true; }
+                offset = end;
+            }
+            return new Blob(parts, {type: 'image/png'});
+        }
+
+        function getPngContentBounds(root) {
+            const inverse = root.getCTM().inverse();
+            const boxes = [...root.querySelectorAll('.context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary')].map(element => {
+                const b = element.getBBox();
+                const matrix = inverse.multiply(element.getCTM());
+                return [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]
+                    .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
+            }).flat();
+            const x = Math.min(...boxes.map(p => p.x)), y = Math.min(...boxes.map(p => p.y));
+            return {x, y, width: Math.max(...boxes.map(p => p.x)) - x, height: Math.max(...boxes.map(p => p.y)) - y};
+        }
+
+        function createPngExportSVG(root, dimensions) {
+            const clone = root.cloneNode(true);
+            const properties = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray',
+                'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-family', 'font-size',
+                'font-weight', 'font-style', 'font-variant-numeric', 'text-anchor', 'dominant-baseline',
+                'marker-start', 'marker-mid', 'marker-end'];
+            const originals = [root, ...root.querySelectorAll('*')];
+            const copies = [clone, ...clone.querySelectorAll('*')];
+            originals.forEach((element, index) => {
+                const style = getComputedStyle(element);
+                copies[index].removeAttribute('style');
+                for (const property of properties) {
+                    const value = style.getPropertyValue(property).replace(/url\(["']?[^)"']*#([^)'" ]+)["']?\)/g, 'url(#$1)');
+                    copies[index].style.setProperty(property, value);
+                }
+            });
+            clone.removeAttribute('transform'); // Export the whole matrix, independent of pan/zoom.
+            clone.querySelector('.grid-group')?.remove();
+            clone.querySelectorAll('.context-node-group').forEach(node => node.style.opacity = '1');
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${dimensions.width}" height="${dimensions.height}" viewBox="${dimensions.x} ${dimensions.y} ${dimensions.worldWidth} ${dimensions.worldHeight}">${new XMLSerializer().serializeToString(clone)}</svg>`;
+        }
+
+        async function exportMatrixAsPNG() {
+            if (getMatrixContexts().size === 0) { alert('There is nothing to export.'); return; }
+            const button = document.getElementById('exportPngBtn');
+            button.disabled = true;
+            let imageUrl;
+            try {
+                await document.fonts.ready;
+                const root = g.node();
+                const fonts = [...root.querySelectorAll('text')].filter(text => text.textContent.trim())
+                    .map(text => parseFloat(getComputedStyle(text).fontSize)).filter(size => size > 0);
+                const dimensions = pngExportDimensions(getPngContentBounds(root), Math.min(CONTEXT_HEIGHT_FONT_PX, ...fonts));
+                if (dimensions.width > 32767 || dimensions.height > 32767 || dimensions.width * dimensions.height > 64000000) {
+                    throw new Error('This matrix is too large for PNG export at the required print size. Export SVG for this matrix.');
+                }
+                const source = createPngExportSVG(root, dimensions);
+                imageUrl = URL.createObjectURL(new Blob([source], {type: 'image/svg+xml;charset=utf-8'}));
+                const image = new Image();
+                await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('Could not render the matrix image.')); image.src = imageUrl; });
+                const canvas = document.createElement('canvas');
+                canvas.width = dimensions.width; canvas.height = dimensions.height;
+                const paint = canvas.getContext('2d');
+                if (!paint) throw new Error('PNG export is unavailable in this browser.');
+                paint.fillStyle = '#ffffff'; paint.fillRect(0, 0, canvas.width, canvas.height);
+                paint.drawImage(image, 0, 0);
+                const encoded = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                if (!encoded) throw new Error('The browser could not create this PNG. Export SVG for this matrix.');
+                const blob = pngWithPrintResolution(new Uint8Array(await encoded.arrayBuffer()));
+                const downloadUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = downloadUrl; link.download = 'harris_matrix_200dpi.png';
+                document.body.appendChild(link); link.click(); link.remove();
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+            } catch (error) { alert(error.message || 'PNG export failed.'); }
+            finally { if (imageUrl) URL.revokeObjectURL(imageUrl); button.disabled = false; }
         }
 
         function exportViewAsSVG() {
