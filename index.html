@@ -352,6 +352,45 @@
         #importModal .modal-buttons { margin-top: 12px; }
         #importModal .modal-buttons button { padding: 8px; }
         @media (max-width: 560px) { .import-mapping-grid { grid-template-columns: 1fr; gap: 7px; } }
+        /* Compact context editor; styles are scoped to this dialog. */
+        #editNodeModal .modal-content { width: 740px; padding: 18px 20px; }
+        #editNodeModal h4 { padding: 12px 20px; margin: -18px -20px 12px; }
+        .context-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+        .context-edit-triple { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        .context-edit-section { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid #e1e6ea; }
+        #editNodeModal .form-group { margin: 0; min-width: 0; }
+        #editNodeModal label { margin: 0 0 4px; line-height: 1.35; }
+        #editNodeModal input, #editNodeModal select, #editNodeModal textarea { margin: 0; padding: 6px 8px; }
+        #editNodeModal input, #editNodeModal select:not([multiple]) { height: 32px; }
+        #editNodeModal select[multiple] { height: 82px; min-height: 0; }
+        #editNodeModal textarea { height: 82px; min-height: 60px; resize: vertical; }
+        #editNodeModal small { display: block; margin-top: 4px; line-height: 1.35; }
+        #editNodeModal .date-inputs { grid-template-columns: minmax(0, 1fr) 68px; gap: 6px; }
+        #editNodeModal .edit-modal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; border-top: 1px solid #e1e6ea; margin-top: 12px; padding-top: 12px; }
+        #editNodeModal .modal-buttons, #editNodeModal .context-delete-actions { margin: 0; gap: 8px; }
+        #editNodeModal .edit-modal-actions button { padding: 8px 6px; min-height: 34px; }
+        @media (max-width: 620px) {
+            .context-edit-triple { grid-template-columns: 1fr; gap: 8px; }
+            #editNodeModal .edit-modal-actions { grid-template-columns: 1fr; gap: 8px; }
+        }
+        @media (max-width: 450px) { .context-edit-grid { grid-template-columns: 1fr; gap: 8px; } }
+        .catalog-disclosure > summary { display: flex; align-items: center; gap: 7px; list-style: none; cursor: pointer; color: #65727b; font-size: 12px; padding: 11px 2px 9px; }
+        .catalog-disclosure > summary::-webkit-details-marker { display: none; }
+        .catalog-disclosure > summary::before { content: '▸'; color: #3c7399; flex: 0 0 20px; font-size: 22px; font-weight: 700; line-height: 20px; text-align: center; }
+        .catalog-disclosure[open] > summary::before { content: '▾'; }
+        .catalog-disclosure > summary:focus-visible { outline: 2px solid #4b91c8; outline-offset: -2px; }
+        .catalog-entity { border: 1px solid #dedfe1; border-left: 3px solid #9cb7ca; margin: 0 0 8px; background: #fff; }
+        .catalog-entity > summary { color: #4a8fc5; padding: 10px 8px; flex-wrap: wrap; }
+        .catalog-entity > summary .catalog-entity-title { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+        .catalog-entity > summary .item-contexts { margin: 0; white-space: nowrap; }
+        .catalog-entity > .catalog-members { padding: 0 8px 1px; }
+        .catalog-entity .catalog-entity { margin-left: 8px; }
+        .catalog-members > .item-details { margin: 0 0 8px; }
+        .catalog-context-list > .hierarchy-item { position: relative; }
+        .catalog-context-list > .unadded-context::after, .catalog-context-list > .placed-context::after { display: block; margin: 0 -10px; padding: 7px 10px; border-top: 1px solid #e6e7e8; background: #f6f6f6; color: #6c9ebf; font-size: 11px; }
+        .catalog-context-list > .unadded-context::after { content: '↗  Drag to matrix'; }
+        .catalog-context-list > .placed-context::after { content: '✓  On matrix'; }
+        .context-node.unassigned { stroke: none; }
     </style>
 </head>
 <body>
@@ -366,7 +405,7 @@
             <div class="header-utilities"><span>Context editor</span>
                 <details class="workspace-menu help-menu">
                     <summary aria-label="How to use the workspace" title="How to use">?</summary>
-                    <div class="menu-panel"><strong>Working with contexts</strong><br>Import a Harris Matrix CSV with relationships, or import plain contexts into the catalog.<br><br>Drag from Unadded Contexts onto the matrix. Click the canvas to create a context, click a rectangle to edit, and drag rectangles together to define a relationship.<br><br>Horizontal guides align contexts. Drop above or below an existing row to expand its band. Creating a relationship keeps both blocks in place.<br><br>Scroll to zoom. Drag the background to pan.</div>
+                    <div class="menu-panel"><strong>Working with contexts</strong><br>Import a saved Harris Matrix JSON project, or import plain CSV contexts into the catalog.<br><br>Use Export Project as JSON to save contexts, relationships, phases, groups and the diagram layout.<br><br>Drag from Unadded Contexts onto the matrix. Click the canvas to create a context, click a rectangle to edit, and drag rectangles together to define a relationship.<br><br>Horizontal guides align contexts. Drop above or below an existing row to expand its band. Creating a relationship keeps both blocks in place.<br><br>Scroll to zoom. Drag the background to pan.</div>
                 </details>
             </div>
         </header>
@@ -375,7 +414,7 @@
                 <div class="catalog-controls">
                     <div class="catalog-title"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="3" y="3" width="14" height="14"/><path d="M6 7h8M6 10h8M6 13h5"/></svg>Context catalog</div>
                     <div class="catalog-imports">
-                        <button onclick="triggerImport('matrix')" class="btn-primary">Import Harris Matrix CSV</button>
+                        <button id="importProjectBtn" onclick="triggerProjectImport()" class="btn-primary">Import Harris Matrix JSON</button>
                         <button onclick="triggerImport('plain')" class="btn-success">Import Plain Contexts CSV</button>
                     </div>
                     <div id="catalogSummary" class="catalog-summary" aria-live="polite">Results: 0 contexts</div>
@@ -408,6 +447,7 @@
                         </div></details>
                         <details class="workspace-menu"><summary>Export</summary><div class="menu-panel">
                             <div class="menu-heading">Export data</div>
+                            <button id="exportProjectBtn" onclick="exportProjectJSON();this.closest('details').open=false">Export Project as JSON</button>
                             <button onclick="exportEnhancedData();this.closest('details').open=false">Export Enhanced CSV</button>
                             <button onclick="exportViewAsSVG();this.closest('details').open=false">Export View as SVG</button>
                             <button id="exportPngBtn" onclick="exportMatrixAsPNG();this.closest('details').open=false" title="200 dpi; minimum font size 9 pt at actual print size">Export Matrix as PNG (200 dpi)</button>
@@ -417,7 +457,7 @@
                 <div class="visualization-panel" id="matrixDropZone">
                     <svg id="matrixSvg" aria-label="Interactive Harris matrix"></svg>
                     <div class="matrix-empty" id="matrixEmpty">
-                        <div class="matrix-empty-card"><div class="empty-matrix-icon" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="13" y="3" width="10" height="8"/><rect x="3" y="25" width="10" height="8"/><rect x="23" y="25" width="10" height="8"/><path d="M18 11v7M8 25v-7h20v7"/></svg></div><h2>Harris Matrix</h2><p id="matrixEmptyMessage">Import a matrix with relationships, or add plain contexts to your catalog and drag them onto this workspace.</p></div>
+                    <div class="matrix-empty-card"><div class="empty-matrix-icon" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="13" y="3" width="10" height="8"/><rect x="3" y="25" width="10" height="8"/><rect x="23" y="25" width="10" height="8"/><path d="M18 11v7M8 25v-7h20v7"/></svg></div><h2>Harris Matrix</h2><p id="matrixEmptyMessage">Import a saved JSON project, or add plain CSV contexts to your catalog and drag them onto this workspace.</p></div>
                     </div>
                 </div>
                 <footer class="matrix-footer"><span>Drop above or below a row to expand its band</span><span id="matrixSummary" aria-live="polite">0 contexts on matrix</span></footer>
@@ -427,6 +467,19 @@
     </div>
 
     <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+    <input type="file" id="projectFileInput" accept=".json,application/json" style="display:none;">
+
+    <div id="projectImportModal" class="modal-backdrop">
+        <div class="modal-content">
+            <h4>Import Harris Matrix JSON</h4>
+            <p id="projectImportSummary" style="line-height:1.6; white-space:pre-line;"></p>
+            <p style="font-size:12px; color:#6a7883;">This replaces the current project, including its layout.</p>
+            <div class="modal-buttons">
+                <button id="confirmProjectImportBtn" class="confirm">Import Project</button>
+                <button onclick="hideModals()" class="cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <!-- CSV Import Modal -->
     <div id="importModal" class="modal-backdrop">
@@ -574,17 +627,22 @@
     <div id="editNodeModal" class="modal-backdrop">
         <div class="modal-content">
             <h4 id="editNodeModalTitle">Edit Context</h4>
+            <div class="context-edit-grid">
             <div class="form-group">
-                <label>Context Identifier</label>
+                <label for="editNodeIdInput">Context Identifier</label>
                 <input type="text" id="editNodeIdInput">
+            </div>
+            <div class="form-group">
+                <label for="editMunsellNumber">Munsell Number</label>
+                <input type="text" id="editMunsellNumber">
             </div>
             <div class="form-group">
                 <label for="editContextType">Context Type</label>
                 <select id="editContextType" multiple size="4" aria-describedby="editContextTypeHelp"></select>
-                <small id="editContextTypeHelp">Select one or more values. Hold Ctrl (Windows) or Command (Mac) to select multiple values.</small>
+                <small id="editContextTypeHelp">Hold Ctrl (Windows) or Command (Mac) to select multiple values.</small>
             </div>
             <div class="form-group">
-                <label>Description</label>
+                <label for="editContextDescription">Description</label>
                 <textarea id="editContextDescription" rows="2"></textarea>
             </div>
             <div class="form-group">
@@ -595,33 +653,30 @@
                 <label for="editLayerLowestPoint">Layer's lowest point</label>
                 <input type="text" inputmode="decimal" id="editLayerLowestPoint">
             </div>
+            <div class="context-edit-section context-edit-triple">
             <div class="form-group">
-                <label for="editMunsellNumber">Munsell Number</label>
-                <input type="text" id="editMunsellNumber">
-            </div>
-
-            <div class="form-group">
-                <label>Dating Evidence</label>
-                
-                <label style="font-size:0.9em; font-weight:normal; margin-top: 5px;">Earliest Date</label>
+                <label for="editEarliestDateYear">Earliest Date</label>
                 <div class="date-inputs">
                     <input type="number" id="editEarliestDateYear" placeholder="Year" min="1">
-                    <select id="editEarliestDateEra">
+                    <select id="editEarliestDateEra" aria-label="Earliest date era">
                         <option value="CE">CE</option>
                         <option value="BCE">BCE</option>
                     </select>
                 </div>
-
-                <label style="font-size:0.9em; font-weight:normal; margin-top: 5px;">Latest Date</label>
+            </div>
+            <div class="form-group">
+                <label for="editLatestDateYear">Latest Date</label>
                 <div class="date-inputs">
                     <input type="number" id="editLatestDateYear" placeholder="Year" min="1">
-                    <select id="editLatestDateEra">
+                    <select id="editLatestDateEra" aria-label="Latest date era">
                         <option value="CE">CE</option>
                         <option value="BCE">BCE</option>
                     </select>
                 </div>
-
-                <select id="editDateType" style="margin-top: 10px;">
+            </div>
+            <div class="form-group">
+                <label for="editDateType">Dating Evidence</label>
+                <select id="editDateType">
                     <option value="">No dating evidence</option>
                     <option value="pottery">Pottery</option>
                     <option value="coin">Coin</option>
@@ -630,29 +685,35 @@
                     <option value="architectural">Architectural</option>
                 </select>
             </div>
+            </div>
+            <div class="context-edit-section context-edit-triple">
              <div class="form-group">
-                <label>Phase Assignment</label>
+                <label for="editPhaseAssignment">Phase Assignment</label>
                 <select id="editPhaseAssignment">
                     <option value="">No phase</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>Group Assignment</label>
+                <label for="editGroupAssignment">Group Assignment</label>
                 <select id="editGroupAssignment">
                     <option value="">No group</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>Sub-Group Assignment</label>
+                <label for="editSubGroupAssignment">Sub-Group Assignment</label>
                 <select id="editSubGroupAssignment">
                     <option value="">No sub-group</option>
                 </select>
             </div>
+            </div>
+            </div>
+            <div class="edit-modal-actions">
             <div class="modal-buttons">
                 <button id="saveNodeBtn" class="confirm">Save Changes</button>
                 <button onclick="hideModals()" class="cancel">Cancel</button>
             </div>
             <div class="context-delete-actions"><button id="removeNodeFromViewBtn" class="remove-from-view" title="Move to Unadded Contexts. Data and relationships are kept.">Remove from view</button><button id="deleteNodeBtn" class="danger">Delete Context</button></div>
+            </div>
         </div>
     </div>
 
@@ -879,6 +940,7 @@
                 .on('drop', handleContextDrop)
                 .on('dragleave', () => { document.getElementById('matrixDropZone').classList.remove('context-drop-active'); clearBandPreview(); });
             document.getElementById('csvFileInput').onchange = handleFileSelect;
+            document.getElementById('projectFileInput').onchange = handleProjectFileSelect;
         };
         
         function switchTab(tabName) {
@@ -917,40 +979,41 @@
             initializeContextBands(assignCoordinates(orderedLevels, levels, dummyNodes));
             nodePositions = assignCoordinates(orderedLevels, levels, dummyNodes);
             drawGrid();
-            drawMatrix(nodePositions, allEdges, contemporaryLinks);
+            // Dummy edges only assist initial ordering; render each real relationship once.
+            drawMatrix(nodePositions, stratigraphicEdges, contemporaryLinks);
         }
 
         // --- Display and UI Panel Updates ---
         function updateHierarchyDisplay() {
             const listDiv = document.getElementById("hierarchyList");
-            let html = '';
-            
+            listDiv.replaceChildren();
             if (phases.size > 0) {
-                html += '<div style="font-weight: bold; margin: 10px 0;">Phases</div>';
-                phases.forEach(phase => {
-                    const phaseContextIds = Array.from(contexts.values()).filter(c => c.phaseId === phase.id).map(c => c.id);
-                    const hasConflicts = temporalConflicts.some(c => phaseContextIds.includes(c.context1) || phaseContextIds.includes(c.context2));
-                    html += `<div class="hierarchy-item phase ${hasConflicts ? 'temporal-conflict' : ''}" onclick="highlightPhase('${phase.id}')"><div class="item-header">Phase: ${phase.name}${hasConflicts ? '<span class="conflict-indicator"></span>' : '<span class="valid-indicator"></span>'}</div><div class="item-details">${phase.description}</div><div class="item-contexts">${phaseContextIds.length} contexts</div></div>`;
-                });
+                const section = createCatalogDisclosure('Phases', 'section:phases', true);
+                phases.forEach(phase => appendCatalogEntity(section, phase, 'phase'));
+                listDiv.appendChild(section);
             }
-            
+            const nestedSubGroups = new Set();
             if (groups.size > 0) {
-                html += '<div style="font-weight: bold; margin: 10px 0;">Groups</div>';
+                const section = createCatalogDisclosure('Groups', 'section:groups', true);
                 groups.forEach(group => {
-                    const groupContextIds = Array.from(group.contexts);
-                    const hasConflicts = temporalConflicts.some(c => groupContextIds.includes(c.context1) || groupContextIds.includes(c.context2));
-                    html += `<div class="hierarchy-item group ${hasConflicts ? 'temporal-conflict' : ''}" onclick="highlightGroup('${group.id}')"><div class="item-header">Group: ${group.name} (${group.type})${hasConflicts ? '<span class="conflict-indicator"></span>' : '<span class="valid-indicator"></span>'}</div><div class="item-details">${group.description}</div><div class="item-contexts">${group.contexts.size} contexts</div></div>`;
+                    const members = appendCatalogEntity(section, group, 'group');
                     group.subGroups.forEach(subGroupId => {
                         const subGroup = subGroups.get(subGroupId);
                         if (subGroup) {
-                             html += `<div class="hierarchy-item subgroup" onclick="highlightSubGroup('${subGroup.id}')"><div class="item-header">Sub-group: ${subGroup.name}</div><div class="item-details">${subGroup.description}</div><div class="item-contexts">${subGroup.contexts.size} contexts</div></div>`;
+                            nestedSubGroups.add(subGroupId);
+                            appendCatalogEntity(members, subGroup, 'subgroup');
                         }
                     });
                 });
+                listDiv.appendChild(section);
             }
-            
-            listDiv.innerHTML = html;
-            const unassigned = Array.from(getMatrixContexts().values()).filter(context => !context.groupId && !context.phaseId);
+            const standaloneSubGroups = [...subGroups.values()].filter(group => !nestedSubGroups.has(group.id));
+            if (standaloneSubGroups.length) {
+                const section = createCatalogDisclosure('Sub-Groups', 'section:subgroups', true);
+                standaloneSubGroups.forEach(group => appendCatalogEntity(section, group, 'subgroup'));
+                listDiv.appendChild(section);
+            }
+            const unassigned = Array.from(getMatrixContexts().values()).filter(context => !context.groupId && !context.subGroupId && !context.phaseId);
             const unadded = Array.from(contexts.values()).filter(context => context.onMatrix === false);
             appendContextList(listDiv, 'unassignedContexts', 'Unassigned Contexts', unassigned, false);
             appendContextList(listDiv, 'unaddedContexts', 'Unadded Contexts', unadded, true);
@@ -1096,12 +1159,11 @@
             return { contextToGroupRep, groupRepToMembers };
         }
 
-        function calculateInitialLevels() {
-            const matrixContexts = getMatrixContexts();
+        function calculateInitialLevels(matrixContexts = getMatrixContexts(), graphRelationships = relationships) {
             const contextIds = Array.from(matrixContexts.keys());
             if (contextIds.length === 0) return { levels: new Map(), stratigraphicEdges: [], contemporaryLinks: [], hasCycle: false, equivalenceInfo: { contextToGroupRep: new Map(), groupRepToMembers: new Map() } };
             
-            const equivalenceInfo = findEquivalenceGroups(matrixContexts, relationships.filter(rel => matrixContexts.has(rel.from) && matrixContexts.has(rel.to)));
+            const equivalenceInfo = findEquivalenceGroups(matrixContexts, graphRelationships.filter(rel => matrixContexts.has(rel.from) && matrixContexts.has(rel.to)));
             const { contextToGroupRep } = equivalenceInfo;
             
             const logicalNodes = new Set(contextIds.map(id => contextToGroupRep.get(id) || id));
@@ -1110,7 +1172,7 @@
             const stratigraphicEdges = [];
             const contemporaryLinks = [];
 
-            relationships.forEach((rel, index) => {
+            graphRelationships.forEach((rel, index) => {
                 if (!matrixContexts.has(rel.from) || !matrixContexts.has(rel.to)) return;
                 let from, to;
                 if (['above', 'seals', 'cuts', 'fill_of'].includes(rel.type)) { [from, to] = [rel.to, rel.from]; } 
@@ -1267,7 +1329,17 @@
                 .attr('y', plan => layout.center(plan.bandIndex, plan.slot) - BAND_ROW_STEP / 2).attr('height', BAND_ROW_STEP);
         }
 
-        function drawMatrix(positions, allEdges, contemporaryLinks) {
+        function stratigraphicPathData(edge, positions) {
+            const source = positions[edge.from], target = positions[edge.to];
+            if (!source || !target) return null;
+            const direction = target.y >= source.y ? 1 : -1;
+            const startY = source.y + direction * 22.5;
+            const endY = target.y - direction * 22.5;
+            const midY = (startY + endY) / 2;
+            return `M ${source.x},${startY} V ${midY} H ${target.x} V ${endY}`;
+        }
+
+        function drawMatrix(positions, stratigraphicEdges, contemporaryLinks) {
             g.selectAll(".context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary, defs").remove();
             const defs = g.append("defs");
             defs.append("marker").attr("id", "arrowhead").attr("viewBox", "-2 -5 10 10").attr("refX", 5).attr("refY", 0).attr("markerWidth", 5).attr("markerHeight", 5).attr("orient", "auto").append("path").attr("d", "M0,-5L10,0L0,5").style("fill", "#495057");
@@ -1293,18 +1365,12 @@
             
             const BOX_HALF_HEIGHT = 22.5, BOX_HALF_WIDTH = 45;
 
-            // Draw all stratigraphic relationships with a simple, robust elbow connector.
-            allEdges.forEach(edge => {
-                const p1 = positions[edge.from];
-                const p2 = positions[edge.to];
-                if (!p1 || !p2) return;
-                
-                const startY = p1.y + (contexts.has(edge.from) ? BOX_HALF_HEIGHT : 0);
-                const endY = p2.y - (contexts.has(edge.to) ? BOX_HALF_HEIGHT : 0);
-                
-                const midY = startY + (endY - startY) / 2;
-                const pathData = `M ${p1.x},${startY} V ${midY} H ${p2.x} V ${endY}`;
-                g.append("path").attr("class", getEdgeClasses(edge)).attr("d", pathData);
+            // One continuous path and one end marker per stored relationship.
+            stratigraphicEdges.forEach(edge => {
+                const pathData = stratigraphicPathData(edge, positions);
+                if (!pathData) return;
+                g.append("path").attr("class", getEdgeClasses(edge))
+                    .attr('data-relationship-index', edge.originalIndex).attr("d", pathData);
             });
 
             // Draw contemporary links with the double bar.
@@ -1326,7 +1392,12 @@
                 .attr("transform", d => `translate(${positions[d].x}, ${positions[d].y})`)
                 .on("mouseenter", (event, id) => showContextDetails(id))
                 .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended));
-            nodeGroups.append("rect").attr("class", d => "context-node " + (temporalConflicts.some(c => c.context1 === d || c.context2 === d) ? "temporal-conflict" : (contexts.get(d)?.phaseId ? "phased" : (contexts.get(d)?.groupId ? "grouped" : "")))).attr("x", -BOX_HALF_WIDTH).attr("y", -BOX_HALF_HEIGHT).attr("width", BOX_HALF_WIDTH*2).attr("height", BOX_HALF_HEIGHT*2).attr("rx", 8)
+            nodeGroups.append("rect").attr("class", id => {
+                const context = contexts.get(id);
+                const assigned = Boolean(context.groupId || context.subGroupId || context.phaseId);
+                const state = temporalConflicts.some(c => c.context1 === id || c.context2 === id) ? ' temporal-conflict' : context.phaseId ? ' phased' : assigned ? ' grouped' : '';
+                return 'context-node' + (assigned ? '' : ' unassigned') + state;
+            }).attr("x", -BOX_HALF_WIDTH).attr("y", -BOX_HALF_HEIGHT).attr("width", BOX_HALF_WIDTH*2).attr("height", BOX_HALF_HEIGHT*2).attr("rx", 8)
                 .style("fill", id => contextNodeAppearance(contexts.get(id)).fill);
             nodeGroups.append("title").text(id => contextNodeTitle(contexts.get(id)));
             nodeGroups.append("text").attr("class", "context-label").attr("dy", "0.35em")
@@ -1513,31 +1584,97 @@
             document.getElementById('matrixShell').classList.toggle('is-empty', placed === 0);
             document.getElementById('matrixEmptyMessage').textContent = waiting > 0
                 ? 'Your context catalog is ready. Drag a record from Unadded Contexts onto this workspace to start building your matrix.'
-                : 'Import a matrix with relationships, or add plain contexts to your catalog and drag them onto this workspace.';
+                : 'Import a saved JSON project, or add plain CSV contexts to your catalog and drag them onto this workspace.';
         }
 
         function getMatrixContexts() {
             return new Map(Array.from(contexts).filter(([, context]) => context.onMatrix !== false));
         }
 
+        const catalogExpansion = loadCatalogExpansion();
+
+        function loadCatalogExpansion() {
+            try {
+                const entries = JSON.parse(localStorage.getItem('harrisMatrixCatalogExpansion') || '[]');
+                return new Map(entries.filter(entry => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean'));
+            } catch { return new Map(); }
+        }
+
+        function createCatalogDisclosure(title, key, defaultOpen = false) {
+            const section = document.createElement('details');
+            section.className = 'catalog-disclosure';
+            section.setAttribute('data-catalog-key', key);
+            section.open = catalogExpansion.has(key) ? catalogExpansion.get(key) : defaultOpen;
+            const summary = document.createElement('summary');
+            summary.textContent = title;
+            section.appendChild(summary);
+            section.ontoggle = () => {
+                catalogExpansion.set(key, section.open);
+                try { localStorage.setItem('harrisMatrixCatalogExpansion', JSON.stringify([...catalogExpansion])); } catch { /* Keep working if preference storage is unavailable. */ }
+            };
+            return section;
+        }
+
+        function appendCatalogEntity(parent, entity, kind) {
+            const field = kind === 'phase' ? 'phaseId' : kind === 'group' ? 'groupId' : 'subGroupId';
+            const items = [...contexts.values()].filter(context => context[field] === entity.id || (kind === 'group' && entity.subGroups.has(context.subGroupId)));
+            const label = kind === 'phase' ? 'Phase' : kind === 'group' ? 'Group' : 'Sub-group';
+            const section = createCatalogDisclosure('', kind + ':' + entity.id);
+            section.className += ' catalog-entity ' + kind;
+            const summary = section.children[0];
+            const title = document.createElement('span');
+            title.className = 'catalog-entity-title';
+            title.textContent = label + ': ' + entity.name + (kind === 'group' ? ' (' + entity.type + ')' : '');
+            const indicator = document.createElement('span');
+            const ids = new Set(items.map(context => context.id));
+            indicator.className = temporalConflicts.some(conflict => ids.has(conflict.context1) || ids.has(conflict.context2)) ? 'conflict-indicator' : 'valid-indicator';
+            const count = document.createElement('span');
+            count.className = 'item-contexts';
+            count.textContent = items.length + (items.length === 1 ? ' context' : ' contexts');
+            summary.append(title, indicator, count);
+            summary.onclick = () => kind === 'phase' ? highlightPhase(entity.id) : kind === 'group' ? highlightGroup(entity.id) : highlightSubGroup(entity.id);
+            const members = document.createElement('div');
+            members.className = 'catalog-members';
+            if (entity.description) {
+                const description = document.createElement('div');
+                description.className = 'item-details'; description.textContent = entity.description;
+                members.appendChild(description);
+            }
+            const list = document.createElement('div');
+            list.className = 'catalog-context-list'; list.setAttribute('role', 'list');
+            appendContextRows(list, items);
+            if (!items.length) {
+                const empty = document.createElement('em');
+                empty.className = 'context-list-empty'; empty.textContent = 'No contexts assigned.';
+                members.appendChild(empty);
+            }
+            members.appendChild(list);
+            section.appendChild(members); parent.appendChild(section);
+            return members;
+        }
+
         function appendContextList(parent, id, title, items, unadded) {
-            const section = document.createElement('section');
+            const section = createCatalogDisclosure(title + ' (' + items.length + ')', 'list:' + id, true);
             section.id = id;
-            const heading = document.createElement('h4');
-            heading.className = 'context-list-heading';
-            heading.textContent = title + ' (' + items.length + ')';
-            section.appendChild(heading);
+            const list = document.createElement('div');
+            list.className = 'catalog-context-list';
+            list.setAttribute('role', 'list');
             if (!items.length) {
                 const empty = document.createElement('em');
                 empty.className = 'context-list-empty';
                 empty.textContent = unadded ? 'No contexts waiting to be added.' : 'No unassigned contexts on the matrix.';
-                section.appendChild(empty);
+                list.appendChild(empty);
             }
-            const list = document.createElement('div');
-            list.setAttribute('role', 'list');
+            appendContextRows(list, items);
+            section.appendChild(list);
+            parent.appendChild(section);
+        }
+
+        function appendContextRows(list, items) {
             items.forEach(context => {
+                const unadded = context.onMatrix === false;
                 const row = document.createElement('div');
-                row.className = 'hierarchy-item' + (unadded ? ' unadded-context' : '');
+                row.className = 'hierarchy-item' + (unadded ? ' unadded-context' : ' placed-context');
                 row.setAttribute('data-context-id', context.id);
                 row.setAttribute('role', 'listitem');
                 row.tabIndex = 0;
@@ -1579,8 +1716,6 @@
                 }
                 list.appendChild(row);
             });
-            section.appendChild(list);
-            parent.appendChild(section);
         }
 
         let draggedUnaddedContextId = null;
@@ -1638,6 +1773,147 @@
             return true;
         }
 
+
+        // --- Complete JSON project backup and restore ---
+        function serializeProject() {
+            const encodeEntities = collection => [...collection].map(([id, entity]) => [id, {
+                ...entity, contexts: Array.from(entity.contexts || []), subGroups: Array.from(entity.subGroups || []),
+            }]);
+            const transform = d3.zoomTransform(svg.node());
+            return {
+                format: 'harris-matrix-project', version: 1,
+                data: { contexts: [...contexts], relationships, groups: encodeEntities(groups),
+                    subGroups: encodeEntities(subGroups), phases: encodeEntities(phases), temporalConflicts },
+                view: {x: transform.x || 0, y: transform.y || 0, k: transform.k || 1},
+                catalogExpansion: [...catalogExpansion],
+            };
+        }
+
+        function exportProjectJSON() {
+            const blob = new Blob([JSON.stringify(serializeProject(), null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.download = 'harris_matrix_project.json';
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function parseProjectJSON(text) {
+            const file = JSON.parse(text.replace(/^\uFEFF/, ''));
+            const fail = message => { throw new Error('Invalid project: ' + message); };
+            const record = value => value && typeof value === 'object' && !Array.isArray(value);
+            const string = value => typeof value === 'string';
+            const nullableNumber = value => value === null || (typeof value === 'number' && Number.isFinite(value));
+            if (!record(file) || file.format !== 'harris-matrix-project') fail('expected a Harris Matrix project JSON file.');
+            if (file.version !== 1) fail('unsupported project version.');
+            if (!record(file.data)) fail('missing project data.');
+            const data = file.data;
+            const decodeCollection = (name, create) => {
+                if (!Array.isArray(data[name])) fail('missing ' + name + '.');
+                const collection = new Map();
+                for (const entry of data[name]) {
+                    if (!Array.isArray(entry) || entry.length !== 2) fail('invalid ' + name + ' entry.');
+                    const [id, raw] = entry;
+                    if (!string(id) || !id.trim() || collection.has(id) || !record(raw) || raw.id !== id) fail('invalid or duplicate ' + name + ' identifier.');
+                    collection.set(id, create(id, raw));
+                }
+                return collection;
+            };
+            const restoredContexts = decodeCollection('contexts', (id, raw) => {
+                if (!['x', 'y', 'onMatrix', 'bandIndex', 'bandSlot'].every(key => Object.hasOwn(raw, key))) fail('missing layout data for ' + id + '.');
+                const context = new ArchaeologicalContext(id);
+                for (const key of Object.keys(context)) {
+                    if (Object.hasOwn(raw, key)) context[key] = raw[key];
+                }
+                if (!Number.isFinite(context.x) || !Number.isFinite(context.y)) fail('invalid position for ' + id + '.');
+                if (typeof context.fixed !== 'boolean' || typeof context.onMatrix !== 'boolean') fail('invalid placement state for ' + id + '.');
+                if (context.bandIndex !== null && !Number.isSafeInteger(context.bandIndex)) fail('invalid band for ' + id + '.');
+                if (!Number.isSafeInteger(context.bandSlot) || context.bandSlot < 0 || context.bandSlot >= Math.max(1, data.contexts.length)) fail('invalid band row for ' + id + '.');
+                if (!string(context.type) && !(Array.isArray(context.type) && context.type.every(string))) fail('invalid context type for ' + id + '.');
+                if (!['description', 'munsellNumber', 'dateType'].every(key => string(context[key]))) fail('invalid text for ' + id + '.');
+                if (!['highestPoint', 'lowestPoint', 'earliestDate', 'latestDate'].every(key => nullableNumber(context[key]))) fail('invalid numeric value for ' + id + '.');
+                return context;
+            });
+            const decodeEntity = (id, raw) => {
+                if (!['name', 'type', 'description'].every(key => string(raw[key]))) fail('invalid group or phase ' + id + '.');
+                if (!Array.isArray(raw.contexts) || !raw.contexts.every(string) || !Array.isArray(raw.subGroups) || !raw.subGroups.every(string)) fail('invalid members for ' + id + '.');
+                const entity = new HierarchicalGroup(id, raw.name, raw.type);
+                entity.description = raw.description; entity.phaseId = raw.phaseId ?? null;
+                entity.contexts = new Set(raw.contexts); entity.subGroups = new Set(raw.subGroups);
+                return entity;
+            };
+            const restoredGroups = decodeCollection('groups', decodeEntity);
+            const restoredSubGroups = decodeCollection('subGroups', decodeEntity);
+            const restoredPhases = decodeCollection('phases', decodeEntity);
+            const reference = (value, collection, label) => {
+                if (value !== null && (!string(value) || !collection.has(value))) fail('unknown ' + label + '.');
+            };
+            for (const entity of [...restoredGroups.values(), ...restoredSubGroups.values(), ...restoredPhases.values()]) {
+                reference(entity.phaseId, restoredPhases, 'phase');
+                for (const id of entity.contexts) reference(id, restoredContexts, 'context');
+                for (const id of entity.subGroups) reference(id, restoredSubGroups, 'subgroup');
+                entity.contexts.clear();
+            }
+            for (const context of restoredContexts.values()) {
+                reference(context.groupId, restoredGroups, 'group'); reference(context.subGroupId, restoredSubGroups, 'subgroup'); reference(context.phaseId, restoredPhases, 'phase');
+                restoredGroups.get(context.groupId)?.contexts.add(context.id);
+                restoredSubGroups.get(context.subGroupId)?.contexts.add(context.id);
+                restoredPhases.get(context.phaseId)?.contexts.add(context.id);
+                if (context.groupId && context.subGroupId) restoredGroups.get(context.groupId).subGroups.add(context.subGroupId);
+                if (context.onMatrix !== false) context.fixed = true;
+            }
+            if (!Array.isArray(data.relationships)) fail('missing relationships.');
+            const types = new Set(['above', 'below', 'seals', 'sealed_by', 'cuts', 'cut_by', 'fill_of', 'filled_by', 'contemporary_with', 'equivalent', 'same_as']);
+            const restoredRelationships = data.relationships.map(rel => {
+                if (!record(rel) || !restoredContexts.has(rel.from) || !restoredContexts.has(rel.to) || !types.has(rel.type)) fail('invalid relationship.');
+                return {from: rel.from, to: rel.to, type: rel.type};
+            });
+            const visibleContexts = new Map([...restoredContexts].filter(([, context]) => context.onMatrix !== false));
+            if (calculateInitialLevels(visibleContexts, restoredRelationships).hasCycle) fail('stratigraphic relationships contain a cycle.');
+            const conflicts = data.temporalConflicts ?? [];
+            if (!Array.isArray(conflicts) || !conflicts.every(item => record(item) && restoredContexts.has(item.context1) && restoredContexts.has(item.context2) && string(item.description))) fail('invalid conflict analysis.');
+            const view = file.view ?? {x: 0, y: 0, k: 1};
+            if (!record(view) || ![view.x, view.y, view.k].every(Number.isFinite) || view.k < 0.1 || view.k > 5) fail('invalid view.');
+            const expansion = file.catalogExpansion ?? [];
+            if (!Array.isArray(expansion) || !expansion.every(entry => Array.isArray(entry) && entry.length === 2 && string(entry[0]) && typeof entry[1] === 'boolean')) fail('invalid catalog state.');
+            return {contexts: restoredContexts, relationships: restoredRelationships, groups: restoredGroups,
+                subGroups: restoredSubGroups, phases: restoredPhases, temporalConflicts: conflicts, view, catalogExpansion: new Map(expansion)};
+        }
+
+        function restoreProject(project) {
+            contexts = project.contexts; relationships = project.relationships; groups = project.groups;
+            subGroups = project.subGroups; phases = project.phases; temporalConflicts = project.temporalConflicts;
+            inspectedContext = null; nodePositions = {}; contextDragOrigin = null; bandDropPreview = null; draggedUnaddedContextId = null;
+            catalogExpansion.clear(); project.catalogExpansion.forEach((open, key) => catalogExpansion.set(key, open));
+            try { localStorage.setItem('harrisMatrixCatalogExpansion', JSON.stringify([...catalogExpansion])); } catch { /* UI preferences are optional. */ }
+            hideModals(); updateUI();
+            const view = project.view;
+            svg.call(zoom.transform, d3.zoomIdentity.translate(view.x, view.y).scale(view.k));
+            const status = document.getElementById('importStatus');
+            status.textContent = `Project restored: ${contexts.size} contexts, ${relationships.length} relationships, ${phases.size} phases. Saved layout restored.`;
+            status.hidden = false;
+        }
+
+        function triggerProjectImport() { document.getElementById('projectFileInput').click(); }
+
+        function handleProjectFileSelect(event) {
+            const file = event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const project = parseProjectJSON(reader.result);
+                    const placed = [...project.contexts.values()].filter(context => context.onMatrix !== false).length;
+                    document.getElementById('projectImportSummary').textContent =
+                        `${project.contexts.size} contexts (${placed} on matrix, ${project.contexts.size - placed} unadded)\n${project.relationships.length} relationships\n${project.phases.size} phases · ${project.groups.size} groups · ${project.subGroups.size} subgroups\nSaved positions, horizontal bands and view will be restored.`;
+                    document.getElementById('confirmProjectImportBtn').onclick = () => restoreProject(project);
+                    document.getElementById('projectImportModal').style.display = 'flex';
+                } catch (error) { alert('Could not import project. ' + error.message); }
+            };
+            reader.onerror = () => alert('Could not read the project file.');
+            reader.readAsText(file);
+        }
 
         // --- CSV Import Functions ---
         let csvImportMode = 'matrix';
