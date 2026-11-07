@@ -321,6 +321,21 @@
             .matrix-footer { justify-content: flex-end; }
         }
 
+        /* Compact inspector and elastic horizontal guide bands. */
+        #contextDetails { padding: 0 12px 12px; }
+        .context-details-panel dl { display: grid; grid-template-columns: minmax(85px, 42%) minmax(0, 1fr); column-gap: 9px; align-items: start; }
+        .context-details-panel dt { margin: 0; padding: 7px 0; font-size: 10.5px; line-height: 1.35; }
+        .context-details-panel dt:first-child { margin: 0; padding-top: 7px; }
+        .context-details-panel dd { margin: 0; padding: 7px 0; font-size: 12px; line-height: 1.4; border-top: 1px solid #eceeef; }
+        .context-details-panel dd:nth-child(2) { border-top: 0; }
+        .context-delete-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .context-delete-actions button { padding: 10px 8px; border: 0; border-radius: 0; cursor: pointer; font-size: 12px; }
+        .context-delete-actions .remove-from-view { background: #e9eff3; color: #5f7b8f; }
+        .context-delete-actions .remove-from-view:disabled { opacity: .5; cursor: default; }
+        .context-delete-actions .danger { background: var(--danger-accent); color: #fff; }
+        .grid-group, .matrix-shell.is-empty .grid-group { opacity: 1; }
+        .band-guide { stroke: #ccd3d9; stroke-width: 1.2px; stroke-dasharray: 7,8; vector-effect: non-scaling-stroke; pointer-events: none; }
+        .band-drop-preview { fill: #4b91c8; fill-opacity: .08; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -345,7 +360,7 @@
             <div class="header-utilities"><span>Context editor</span>
                 <details class="workspace-menu help-menu">
                     <summary aria-label="How to use the workspace" title="How to use">?</summary>
-                    <div class="menu-panel"><strong>Working with contexts</strong><br>Import a Harris Matrix CSV with relationships, or import plain contexts into the catalog.<br><br>Drag from Unadded Contexts onto the matrix. Click the canvas to create a context, click a rectangle to edit, and drag rectangles together to define a relationship.<br><br>Scroll to zoom. Drag the background to pan.</div>
+                    <div class="menu-panel"><strong>Working with contexts</strong><br>Import a Harris Matrix CSV with relationships, or import plain contexts into the catalog.<br><br>Drag from Unadded Contexts onto the matrix. Click the canvas to create a context, click a rectangle to edit, and drag rectangles together to define a relationship.<br><br>Horizontal guides align contexts. Drop above or below an existing row to expand its band. Creating a relationship keeps both blocks in place.<br><br>Scroll to zoom. Drag the background to pan.</div>
                 </details>
             </div>
         </header>
@@ -398,7 +413,7 @@
                         <div class="matrix-empty-card"><div class="empty-matrix-icon" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="13" y="3" width="10" height="8"/><rect x="3" y="25" width="10" height="8"/><rect x="23" y="25" width="10" height="8"/><path d="M18 11v7M8 25v-7h20v7"/></svg></div><h2>Harris Matrix</h2><p id="matrixEmptyMessage">Import a matrix with relationships, or add plain contexts to your catalog and drag them onto this workspace.</p></div>
                     </div>
                 </div>
-                <footer class="matrix-footer"><span>Scroll to zoom · Drag background to pan</span><span id="matrixSummary" aria-live="polite">0 contexts on matrix</span></footer>
+                <footer class="matrix-footer"><span>Drop above or below a row to expand its band</span><span id="matrixSummary" aria-live="polite">0 contexts on matrix</span></footer>
             </section>
             <aside class="context-details-panel" aria-label="Context Parameters"><h3>Context Details</h3><div id="contextDetails" aria-live="polite"><em>Hover over a context in the matrix to view its parameters.</em></div></aside>
         </main>
@@ -628,7 +643,7 @@
                 <button id="saveNodeBtn" class="confirm">Save Changes</button>
                 <button onclick="hideModals()" class="cancel">Cancel</button>
             </div>
-            <button id="deleteNodeBtn" class="danger" style="width: 100%; margin-top: 10px;">Delete Context</button>
+            <div class="context-delete-actions"><button id="removeNodeFromViewBtn" class="remove-from-view" title="Move to Unadded Contexts. Data and relationships are kept.">Remove from view</button><button id="deleteNodeBtn" class="danger">Delete Context</button></div>
         </div>
     </div>
 
@@ -675,7 +690,7 @@
         const g = svg.append("g").attr("class", "main-group");
         const GRID_CELL_SIZE = 60;
         const GRID_COLOR = "#e9ecef";
-        const zoom = d3.zoom().scaleExtent([0.1, 5]).on("zoom", (event) => g.attr("transform", event.transform));
+        const zoom = d3.zoom().scaleExtent([0.1, 5]).on("zoom", (event) => { g.attr("transform", event.transform); drawGrid(); });
         svg.call(zoom);
 
         // Data Structure Classes
@@ -684,7 +699,7 @@
                 this.id = id; this.x = x; this.y = y; this.fixed = false; this.type = 'layer';
                 this.description = ''; this.earliestDate = null; this.latestDate = null; this.dateType = '';
                 this.groupId = null; this.subGroupId = null; this.phaseId = null;
-                this.highestPoint = null; this.lowestPoint = null; this.munsellNumber = ''; this.onMatrix = true;
+                this.highestPoint = null; this.lowestPoint = null; this.munsellNumber = ''; this.onMatrix = true; this.bandIndex = null; this.bandSlot = 0;
             }
             hasDateRange() { return this.earliestDate !== null && this.latestDate !== null; }
             getDateRange() { if (!this.hasDateRange()) return null; return { earliest: this.earliestDate, latest: this.latestDate, type: this.dateType }; }
@@ -696,6 +711,155 @@
             }
         }
 
+        // Bands are identified by stable integer indices. Their heights derive from occupied rows.
+        const BAND_BASE_HEIGHT = 120;
+        const BAND_ROW_STEP = 72;
+        const BAND_VERTICAL_PADDING = 12;
+        const BAND_ROW_SNAP = 24;
+        let bandDropPreview = null;
+        let contextDragOrigin = null;
+
+        function buildBandLayout(preview = null) {
+            const rows = new Map();
+            getMatrixContexts().forEach(context => {
+                if (!Number.isInteger(context.bandIndex)) return;
+                const slot = Number.isInteger(context.bandSlot) ? Math.max(0, context.bandSlot) : 0;
+                rows.set(context.bandIndex, Math.max(rows.get(context.bandIndex) || 1, slot + 1));
+            });
+            if (preview?.insert) rows.set(preview.bandIndex, (rows.get(preview.bandIndex) || 1) + 1);
+            const height = index => Math.max(BAND_BASE_HEIGHT, (rows.get(index) || 1) * BAND_ROW_STEP + 2 * BAND_VERTICAL_PADDING);
+            const top = index => {
+                let y = index * BAND_BASE_HEIGHT;
+                rows.forEach((count, key) => {
+                    const extra = Math.max(0, count * BAND_ROW_STEP + 2 * BAND_VERTICAL_PADDING - BAND_BASE_HEIGHT);
+                    if (index >= 0 && key >= 0 && key < index) y += extra;
+                    if (index < 0 && key >= index && key < 0) y -= extra;
+                });
+                return y;
+            };
+            const center = (index, slot = 0) => top(index) + height(index) / 2 + (slot - ((rows.get(index) || 1) - 1) / 2) * BAND_ROW_STEP;
+            return {rows, height, top, center};
+        }
+
+        function bandIndexAt(y, layout = buildBandLayout()) {
+            let index = Math.floor(y / BAND_BASE_HEIGHT);
+            while (y < layout.top(index)) index--;
+            while (y >= layout.top(index) + layout.height(index)) index++;
+            return index;
+        }
+
+        function compactBandSlots() {
+            const byBand = new Map();
+            getMatrixContexts().forEach(context => {
+                if (!Number.isInteger(context.bandIndex)) return;
+                if (!byBand.has(context.bandIndex)) byBand.set(context.bandIndex, []);
+                byBand.get(context.bandIndex).push(context);
+            });
+            byBand.forEach(items => {
+                const slots = [...new Set(items.map(context => Number.isInteger(context.bandSlot) ? Math.max(0, context.bandSlot) : 0))].sort((a, b) => a - b);
+                items.forEach(context => { context.bandSlot = slots.indexOf(Number.isInteger(context.bandSlot) ? Math.max(0, context.bandSlot) : 0); });
+            });
+        }
+
+        function alignContextsToBands() {
+            const layout = buildBandLayout();
+            getMatrixContexts().forEach(context => {
+                if (!Number.isInteger(context.bandIndex)) return;
+                context.y = layout.center(context.bandIndex, context.bandSlot);
+                context.fixed = true;
+            });
+        }
+
+        function initializeContextBands(positions) {
+            const layout = buildBandLayout();
+            const pending = new Map();
+            getMatrixContexts().forEach(context => {
+                if (Number.isInteger(context.bandIndex)) return;
+                const position = positions[context.id] || {x: context.x, y: context.y};
+                const bandIndex = bandIndexAt(position.y, layout);
+                if (!pending.has(bandIndex)) pending.set(bandIndex, []);
+                pending.get(bandIndex).push({context, x: position.x, y: position.y});
+            });
+            pending.forEach((items, bandIndex) => {
+                const clusters = [];
+                getMatrixContexts().forEach(context => {
+                    if (context.bandIndex !== bandIndex) return;
+                    let cluster = clusters.find(row => row.slot === context.bandSlot);
+                    if (!cluster) { cluster = {slot: context.bandSlot, y: layout.center(bandIndex, context.bandSlot), items: []}; clusters.push(cluster); }
+                    cluster.items.push(context);
+                });
+                items.sort((a, b) => a.y - b.y).forEach(item => {
+                    let cluster = clusters.find(row => Math.abs(row.y - item.y) < BAND_ROW_STEP / 2 && row.items.every(other => Math.abs(other.x - item.x) >= 100));
+                    if (!cluster) { cluster = {y: item.y, items: []}; clusters.push(cluster); }
+                    item.context.x = item.x;
+                    item.context.bandIndex = bandIndex;
+                    cluster.items.push(item.context);
+                });
+                clusters.sort((a, b) => a.y - b.y).forEach((cluster, slot) => cluster.items.forEach(context => { context.bandSlot = slot; }));
+            });
+            compactBandSlots();
+            alignContextsToBands();
+        }
+
+        function planBandPlacement(x, y, movingId) {
+            const layout = buildBandLayout();
+            const bandIndex = bandIndexAt(y, layout);
+            const neighbors = [...getMatrixContexts().values()].filter(context => context.id !== movingId && context.bandIndex === bandIndex);
+            if (!neighbors.length) return {bandIndex, slot: 0, insert: false};
+            const count = layout.rows.get(bandIndex) || 1;
+            let nearest = 0;
+            for (let slot = 1; slot < count; slot++) if (Math.abs(y - layout.center(bandIndex, slot)) < Math.abs(y - layout.center(bandIndex, nearest))) nearest = slot;
+            const center = layout.center(bandIndex, nearest);
+            const overlaps = neighbors.some(context => context.bandSlot === nearest && Math.abs(context.x - x) < 100);
+            if (Math.abs(y - center) <= BAND_ROW_SNAP && !overlaps) return {bandIndex, slot: nearest, insert: false};
+            return {bandIndex, slot: y < center ? nearest : nearest + 1, insert: true};
+        }
+
+        function placeContextInBand(context, x, y) {
+            const snappedX = Math.round(x / GRID_CELL_SIZE) * GRID_CELL_SIZE;
+            const plan = planBandPlacement(snappedX, y, context.id);
+            if (plan.insert) getMatrixContexts().forEach(other => {
+                if (other.id !== context.id && other.bandIndex === plan.bandIndex && other.bandSlot >= plan.slot) other.bandSlot++;
+            });
+            context.x = snappedX;
+            context.bandIndex = plan.bandIndex;
+            context.bandSlot = plan.slot;
+            context.fixed = true;
+            context.onMatrix = true;
+            compactBandSlots();
+            alignContextsToBands();
+        }
+
+        function findContextDropTarget(x, y, sourceId) {
+            for (const [id] of getMatrixContexts()) {
+                if (id === sourceId) continue;
+                const position = nodePositions[id];
+                if (position && Math.abs(x - position.x) < 45 && Math.abs(y - position.y) < 22.5) return id;
+            }
+            return null;
+        }
+
+        function previewContextBand(x, y, id, allowRelationship = false) {
+            bandDropPreview = allowRelationship && findContextDropTarget(x, y, id) ? null : planBandPlacement(Math.round(x / GRID_CELL_SIZE) * GRID_CELL_SIZE, y, id);
+            drawGrid();
+        }
+
+        function clearBandPreview() {
+            bandDropPreview = null;
+            drawGrid();
+        }
+
+        function removeContextFromView(id) {
+            const context = contexts.get(id);
+            if (!context || context.onMatrix === false) return false;
+            context.onMatrix = false;
+            compactBandSlots();
+            alignContextsToBands();
+            hideModals();
+            updateUI();
+            return true;
+        }
+
         // --- Core Application Logic ---
         window.onload = () => {
             loadFromStorage();
@@ -704,7 +868,7 @@
             svg.on('click', handleCanvasClick)
                 .on('dragover', handleContextDragOver)
                 .on('drop', handleContextDrop)
-                .on('dragleave', () => document.getElementById('matrixDropZone').classList.remove('context-drop-active'));
+                .on('dragleave', () => { document.getElementById('matrixDropZone').classList.remove('context-drop-active'); clearBandPreview(); });
             document.getElementById('csvFileInput').onchange = handleFileSelect;
         };
         
@@ -729,7 +893,7 @@
 
         function applySugiyamaLayout() {
             const matrixContexts = getMatrixContexts();
-            if (matrixContexts.size === 0) { nodePositions = {}; g.selectAll(".context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary").remove(); return; }
+            if (matrixContexts.size === 0) { nodePositions = {}; drawGrid(); g.selectAll(".context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary").remove(); return; }
             const { levels, stratigraphicEdges, contemporaryLinks, hasCycle } = calculateInitialLevels();
 
             if (hasCycle) {
@@ -741,7 +905,9 @@
             const { dummyNodes, allEdges } = createDummyNodesAndEdges(stratigraphicEdges, levels);
             const allNodes = new Map([...matrixContexts, ...dummyNodes]);
             const orderedLevels = reduceCrossings(levels, allNodes, allEdges);
+            initializeContextBands(assignCoordinates(orderedLevels, levels, dummyNodes));
             nodePositions = assignCoordinates(orderedLevels, levels, dummyNodes);
+            drawGrid();
             drawMatrix(nodePositions, allEdges, contemporaryLinks);
         }
 
@@ -1074,13 +1240,24 @@
 
         // --- Drawing Functions ---
         function drawGrid() {
-            g.select(".grid-group").remove();
-            const gridSize = 4000;
-            const gridGroup = g.insert("g", ":first-child").attr("class", "grid-group");
-            gridGroup.selectAll("line.vertical").data(d3.range(-gridSize, gridSize, GRID_CELL_SIZE)).enter().append("line").attr("class", "vertical").attr("x1", d => d).attr("y1", -gridSize).attr("x2", d => d).attr("y2", gridSize).style("stroke", GRID_COLOR).style("stroke-width", 1);
-            gridGroup.selectAll("line.horizontal").data(d3.range(-gridSize, gridSize, GRID_CELL_SIZE)).enter().append("line").attr("class", "horizontal").attr("x1", -gridSize).attr("y1", d => d).attr("x2", gridSize).attr("y2", d => d).style("stroke", GRID_COLOR).style("stroke-width", 1);
+            const bounds = svg.node().getBoundingClientRect();
+            const transform = d3.zoomTransform(svg.node());
+            const start = transform.invert([0, 0]);
+            const end = transform.invert([bounds.width || 800, bounds.height || 600]);
+            const layout = buildBandLayout(bandDropPreview);
+            const first = bandIndexAt(start[1] - 240, layout);
+            const last = bandIndexAt(end[1] + 240, layout) + 1;
+            const boundaries = [];
+            for (let index = first; index <= last; index++) boundaries.push(layout.top(index));
+            let gridGroup = g.select('.grid-group');
+            if (gridGroup.empty()) gridGroup = g.insert('g', ':first-child').attr('class', 'grid-group');
+            gridGroup.selectAll('line.band-guide').data(boundaries).join('line').attr('class', 'band-guide')
+                .attr('x1', start[0] - 1000).attr('x2', end[0] + 1000).attr('y1', y => y).attr('y2', y => y);
+            gridGroup.selectAll('rect.band-drop-preview').data(bandDropPreview ? [bandDropPreview] : []).join('rect')
+                .attr('class', 'band-drop-preview').attr('x', start[0] - 1000).attr('width', end[0] - start[0] + 2000)
+                .attr('y', plan => layout.center(plan.bandIndex, plan.slot) - BAND_ROW_STEP / 2).attr('height', BAND_ROW_STEP);
         }
-        
+
         function drawMatrix(positions, allEdges, contemporaryLinks) {
             g.selectAll(".context-node-group, .relationship-path, .group-boundary, .subgroup-boundary, .phase-boundary, defs").remove();
             const defs = g.append("defs");
@@ -1175,24 +1352,42 @@
 
         // --- Event Handlers & Modals ---
         let wasDragged = false;
-        function handleCanvasClick(event) { if (event.defaultPrevented) return; const [x, y] = d3.pointer(event, g.node()); const snappedX = Math.round(x / GRID_CELL_SIZE) * GRID_CELL_SIZE; const snappedY = Math.round(y / GRID_CELL_SIZE) * GRID_CELL_SIZE; showContextModal(snappedX, snappedY); }
-        function dragstarted(event) { event.sourceEvent.stopPropagation(); d3.select(this).raise().classed("dragging", true); wasDragged = false; }
-        function dragged(event) { wasDragged = true; d3.select(this).attr("transform", `translate(${event.x}, ${event.y})`); }
-        function dragended(event, d) {
-            d3.select(this).classed("dragging", false);
-            if (wasDragged) {
-                const sourceId = d; let targetId = null;
-                for (const [id] of contexts.entries()) {
-                    if (sourceId === id) continue;
-                    const pos = nodePositions[id];
-                    if (pos && event.x > pos.x - 45 && event.x < pos.x + 45 && event.y > pos.y - 22.5 && event.y < pos.y + 22.5) { targetId = id; break; }
-                }
-                if (targetId) { showRelationshipModal(sourceId, targetId); } 
-                else { const context = contexts.get(sourceId); if (context) { context.x = Math.round(event.x / GRID_CELL_SIZE) * GRID_CELL_SIZE; context.y = Math.round(event.y / GRID_CELL_SIZE) * GRID_CELL_SIZE; context.fixed = true; } }
-                updateUI();
-            } else { showEditNodeModal(d); }
+        function handleCanvasClick(event) {
+            if (event.defaultPrevented || event.target?.closest?.('.context-node-group')) return;
+            const [x, y] = d3.pointer(event, g.node());
+            showContextModal(x, y);
         }
-        
+        function dragstarted(event, id) {
+            event.sourceEvent.stopPropagation();
+            d3.select(this).raise().classed('dragging', true);
+            wasDragged = false;
+            const context = contexts.get(id);
+            const position = nodePositions[id] || context;
+            contextDragOrigin = position ? {id, x: position.x, y: position.y} : null;
+        }
+        function dragged(event, id) {
+            wasDragged = true;
+            d3.select(this).attr('transform', `translate(${event.x}, ${event.y})`);
+            previewContextBand(event.x, event.y, id, true);
+        }
+        function dragended(event, id) {
+            const node = d3.select(this).classed('dragging', false);
+            clearBandPreview();
+            if (!wasDragged) { contextDragOrigin = null; showEditNodeModal(id); return; }
+            const targetId = findContextDropTarget(event.x, event.y, id);
+            if (targetId) {
+                const origin = contextDragOrigin || nodePositions[id] || contexts.get(id);
+                if (origin) node.attr('transform', `translate(${origin.x}, ${origin.y})`);
+                contextDragOrigin = null;
+                showRelationshipModal(id, targetId);
+                return;
+            }
+            const context = contexts.get(id);
+            if (context) placeContextInBand(context, event.x, event.y);
+            contextDragOrigin = null;
+            updateUI();
+        }
+
         function showContextModal(x, y) {
             const modal = document.getElementById("contextModal");
             modal.style.display = "flex";
@@ -1216,6 +1411,7 @@
                 context.earliestDate = parseDateFromInputs(earliestYear, earliestEra); context.latestDate = parseDateFromInputs(latestYear, latestEra);
                 context.dateType = document.getElementById("dateType").value;
                 contexts.set(id, context);
+                placeContextInBand(context, x, y);
                 hideModals(); updateUI();
             };
         }
@@ -1230,6 +1426,8 @@
             const latestDisplay = formatDateForDisplay(context.latestDate); document.getElementById("editLatestDateYear").value = latestDisplay.year; document.getElementById("editLatestDateEra").value = latestDisplay.era;
             document.getElementById("editDateType").value = context.dateType || ''; document.getElementById("editGroupAssignment").value = context.groupId || ''; document.getElementById("editSubGroupAssignment").value = context.subGroupId || ''; document.getElementById("editPhaseAssignment").value = context.phaseId || '';
             document.getElementById("saveNodeBtn").onclick = () => saveNodeChanges(contextId); document.getElementById("deleteNodeBtn").onclick = () => deleteContext(contextId);
+            document.getElementById("removeNodeFromViewBtn").disabled = context.onMatrix === false;
+            document.getElementById("removeNodeFromViewBtn").onclick = () => removeContextFromView(contextId);
         }
 
         function saveNodeChanges(oldId) {
@@ -1261,8 +1459,8 @@
             document.getElementById("confirmRelationshipBtn").onclick = () => { 
                 const context1 = contexts.get(sourceId);
                 const context2 = contexts.get(targetId);
-                if (context1) context1.fixed = false;
-                if (context2) context2.fixed = false;
+                if (context1) context1.fixed = true;
+                if (context2) context2.fixed = true;
                 relationships.push({ from: sourceId, to: targetId, type: select.value }); hideModals(); updateUI(); 
             };
         }
@@ -1391,6 +1589,7 @@
         function finishUnaddedContextDrag() {
             draggedUnaddedContextId = null;
             document.getElementById('matrixDropZone').classList.remove('context-drop-active');
+            clearBandPreview();
         }
 
         function handleContextDragOver(event) {
@@ -1398,6 +1597,7 @@
             event.preventDefault();
             event.dataTransfer.dropEffect = 'move';
             document.getElementById('matrixDropZone').classList.add('context-drop-active');
+            if (draggedUnaddedContextId) { const point = d3.pointer(event, g.node()); previewContextBand(point[0], point[1], draggedUnaddedContextId); }
         }
 
         function handleContextDrop(event) {
@@ -1423,10 +1623,7 @@
         function addContextToMatrix(id, x, y) {
             const context = contexts.get(id);
             if (!context || context.onMatrix !== false || !Number.isFinite(x) || !Number.isFinite(y)) return false;
-            context.x = Math.round(x / GRID_CELL_SIZE) * GRID_CELL_SIZE;
-            context.y = Math.round(y / GRID_CELL_SIZE) * GRID_CELL_SIZE;
-            context.fixed = true;
-            context.onMatrix = true;
+            placeContextInBand(context, x, y);
             inspectedContext = context;
             updateUI();
             return true;
